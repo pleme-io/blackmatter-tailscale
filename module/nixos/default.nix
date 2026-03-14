@@ -84,6 +84,14 @@ in
       };
     };
 
+    ssh = {
+      enable = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = "Enable Tailscale SSH server (allows `tailscale ssh` access without OpenSSH port forwarding).";
+      };
+    };
+
     extraFlags = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [];
@@ -95,7 +103,7 @@ in
     services.tailscale = {
       enable = true;
       useRoutingFeatures = routingFeatures;
-      extraUpFlags = buildUpFlags;
+      extraUpFlags = buildUpFlags ++ lib.optional cfg.ssh.enable "--ssh";
     } // lib.optionalAttrs (cfg.authKeyFile != null) {
       authKeyFile = cfg.authKeyFile;
     };
