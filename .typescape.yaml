@@ -1,0 +1,23 @@
+schema_version: 1
+manifest:
+  name: blackmatter-tailscale
+  kind: BlackmatterComponent
+  archetype: blackmatter-component-nixos-darwin
+  description: Cross-platform Tailscale VPN module (NixOS + Darwin).
+dimensions:
+  vocabulary: [tailscale, vpn, mesh, wireguard]
+  domains: [Nix]
+  stack: [NixOS, Darwin]
+  modules:
+    nixos: module/nixos/
+    darwin: module/darwin/
+  render:
+    produces:
+      - "tailscaled systemd service (NixOS)"
+      - "tailscaled launchd agent (Darwin)"
+  compliance:
+    satisfies: []
+    participates: [network-security]
+  dag:
+    inputs: [nixpkgs, substrate]
+  attestation: { merkle_root: null, signed_by: null, producer: blackmatter-component-flake.nix }
