@@ -74,22 +74,36 @@ in
       type = lib.types.bool;
       default = false;
       description = ''
-        Accept Tailscale MagicDNS configuration on this node — i.e. let
-        Tailscale install its resolver (100.100.100.100) for the
-        tailnet's MagicDNS suffix and add that suffix as a search
-        domain. With this true:
+        Accept Tailscale MagicDNS configuration on this node — i.e.
+        pass `--accept-dns=true` to `tailscale up`. Tailscale then
+        rewrites systemd-resolved / resolv.conf so the tailnet's
+        MagicDNS resolver answers for `<host>.<suffix>` and the
+        suffix itself becomes a search domain.
 
-          ssh rio          # bare name resolves via MagicDNS
+        Subnet routers typically leave this false because their
+        loopback /etc/resolv.conf is what advertised peers see;
+        client/dev nodes that want bare-name resolution flip this
+        on, OR set `magicDnsSearchSuffix` for a less invasive path
+        that only adds the search domain without rewriting resolvers.
+      '';
+    };
 
-        With this false the node is on the mesh but has no idea what
-        the bare name `rio` refers to — only raw tailnet IPs work, or
-        you must declare host entries elsewhere.
+    magicDnsSearchSuffix = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "tail41c897.ts.net";
+      description = ''
+        Tailnet MagicDNS suffix to add as a system-wide DNS search
+        domain via `networking.search`. With this set, bare names
+        like `rio` resolve to `rio.<suffix>` and reach MagicDNS via
+        whatever resolver chain is already in place for `*.ts.net`.
 
-        On NixOS this passes `--accept-dns=true` to `tailscale up` and
-        Tailscale rewrites systemd-resolved / resolv.conf scoped
-        resolvers. Subnet routers typically leave this false because
-        their loopback /etc/resolv.conf is what advertised peers see;
-        client/dev nodes that want bare-name resolution flip this on.
+        This is a less invasive alternative to acceptDns=true on
+        nodes that already have a working resolver chain for
+        `*.ts.net` (e.g. via static records or a sibling resolver).
+        For most NixOS nodes acceptDns=true is the simpler path.
+
+        Null = no search-domain wiring.
       '';
     };
 
@@ -145,5 +159,8 @@ in
         allowedUDPPorts = [ 41641 ];
       })
     ];
+
+    networking.search = lib.mkIf (cfg.magicDnsSearchSuffix != null)
+      [ cfg.magicDnsSearchSuffix ];
   };
 }

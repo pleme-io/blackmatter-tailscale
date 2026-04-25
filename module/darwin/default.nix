@@ -53,23 +53,41 @@ in
       type = lib.types.bool;
       default = false;
       description = ''
-        Accept Tailscale MagicDNS configuration on this node — i.e. let
-        Tailscale install its resolver (100.100.100.100) for the
-        tailnet's MagicDNS suffix and add that suffix as a search
-        domain. With this true:
+        Accept Tailscale MagicDNS configuration on this node, mapped on
+        Darwin to nix-darwin's `services.tailscale.overrideLocalDns`.
 
-          ssh rio          # bare name resolves via MagicDNS
+        WARNING — on Darwin this is the destructive switch: it sets
+        `networking.dns = [ "100.100.100.100" ]`, replacing the
+        system's primary DNS resolver entirely. Local mDNS, dnsmasq
+        served by a sibling VPN, and search-domain magic on other
+        scopes will all break unless you also re-add them.
 
-        With this false the node is on the mesh but has no idea what
-        the bare name `rio` refers to — only raw tailnet IPs work, or
-        you must declare host entries elsewhere.
+        For bare-name resolution (`ssh rio`) prefer
+        `magicDnsSearchSuffix` below — that path piggybacks on the
+        `/etc/resolver/ts.net` entry nix-darwin already creates and
+        leaves the rest of the DNS chain alone.
+      '';
+    };
 
-        On Darwin this maps to nix-darwin's
-        `services.tailscale.overrideLocalDns`, which adds Tailscale's
-        resolver to the macOS DNS chain. macOS scoped resolvers keep
-        per-domain routing intact, so a WireGuard-pushed supplemental
-        resolver (e.g. dnsmasq for `.quero.cloud`) continues to win
-        for its own scope.
+    magicDnsSearchSuffix = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "tail41c897.ts.net";
+      description = ''
+        Tailnet MagicDNS suffix to add as a system-wide DNS search
+        domain. With this set, bare names like `rio` resolve to
+        `rio.<suffix>`, which `/etc/resolver/ts.net` (created by
+        nix-darwin's services.tailscale) then routes to MagicDNS at
+        100.100.100.100.
+
+        This is the SAFE path to bare-name resolution — it appends a
+        search domain instead of replacing the system DNS resolver, so
+        every other scoped resolver (mDNS, sibling-VPN dnsmasq) keeps
+        working unchanged. Find your tailnet's suffix in
+        `tailscale dns status`.
+
+        Null = no search-domain wiring; bare names won't resolve and
+        you must use raw tailnet IPs or full FQDNs.
       '';
     };
 
@@ -107,5 +125,8 @@ in
     };
 
     environment.systemPackages = [ pkgs.tailscale ];
+
+    networking.search = lib.mkIf (cfg.magicDnsSearchSuffix != null)
+      [ cfg.magicDnsSearchSuffix ];
   };
 }
