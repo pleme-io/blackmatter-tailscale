@@ -2,7 +2,7 @@
 #
 # Provides blackmatter.components.tailscale.* options that map to the
 # underlying services.tailscale and networking.firewall configuration.
-{ config, lib, ... }:
+{ config, lib, pkgs, ... }:
 let
   cfg = config.blackmatter.components.tailscale;
 
@@ -182,5 +182,31 @@ in
 
     networking.search = lib.mkIf (cfg.magicDnsSearchSuffix != null)
       [ cfg.magicDnsSearchSuffix ];
+
+    # Re-apply the typed config on every nixos-rebuild. nixpkgs'
+    # tailscaled-autoconnect.service early-exits when tailscaled is
+    # already authed, so changes to tags / advertisedRoutes /
+    # acceptRoutes after first auth never get pushed by it. `tailscale
+    # set` is the runtime-update verb (no re-auth) and is idempotent —
+    # same flags = no-op, drift = re-applied. Mirrors the Darwin
+    # activation hook so both platforms converge identically.
+    systemd.services.blackmatter-tailscale-set = {
+      description = "Apply blackmatter-tailscale typed config to running tailscaled";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "tailscaled.service" "tailscaled-autoconnect.service" ];
+      wants = [ "tailscaled.service" ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+      };
+      script = ''
+        for _ in 1 2 3 4 5 6 7 8 9 10; do
+          ${pkgs.tailscale}/bin/tailscale status >/dev/null 2>&1 && break
+          sleep 1
+        done
+        ${pkgs.tailscale}/bin/tailscale set ${lib.escapeShellArgs buildUpFlags} || \
+          echo "[blackmatter-tailscale] tailscale set failed; tailscaled may not be ready"
+      '';
+    };
   };
 }
