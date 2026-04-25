@@ -126,7 +126,19 @@ in
 
     environment.systemPackages = [ pkgs.tailscale ];
 
+    # When opting into search-domain wiring on Darwin, push the suffix
+    # via `networksetup -setsearchdomains` for the typical built-in
+    # network services. nix-darwin's networking.search is a no-op unless
+    # at least one entry exists in knownNetworkServices, since macOS
+    # stores search domains per-network-service in SCPreferences (NOT
+    # in /etc/resolv.conf, which the system ignores). Default to the
+    # two services every Apple Silicon machine has out of the box;
+    # nodes with extra interfaces (NordVPN, Ethernet adapters) can
+    # extend this list at the profile level.
     networking.search = lib.mkIf (cfg.magicDnsSearchSuffix != null)
       [ cfg.magicDnsSearchSuffix ];
+
+    networking.knownNetworkServices = lib.mkIf (cfg.magicDnsSearchSuffix != null)
+      (lib.mkDefault [ "Wi-Fi" "Thunderbolt Bridge" ]);
   };
 }
