@@ -186,11 +186,18 @@ in
     # Re-apply the typed config on every nixos-rebuild. nixpkgs'
     # tailscaled-autoconnect.service early-exits when tailscaled is
     # already authed, so changes to tags / advertisedRoutes /
-    # acceptRoutes after first auth never get pushed by it. `tailscale
-    # set` is the runtime-update verb (no re-auth) and is idempotent —
-    # same flags = no-op, drift = re-applied. Mirrors the Darwin
-    # activation hook so both platforms converge identically.
-    systemd.services.blackmatter-tailscale-set = {
+    # acceptRoutes after first auth never get pushed by it.
+    #
+    # We use `tailscale up` (not `tailscale set`) because the
+    # `--advertise-tags` flag is only on `set` from Tailscale 1.96+,
+    # and we need to support older deployed versions too. `up` accepts
+    # the full flag set on every release. On an already-authed device
+    # `tailscale up <flags>` updates persisted prefs without re-auth
+    # when the originating identity owns the requested tags (e.g. an
+    # autogroup:admin user logged in for first auth). Same flags =
+    # no-op, drift = re-applied. Mirrors the Darwin activation hook so
+    # both platforms converge identically.
+    systemd.services.blackmatter-tailscale-configure = {
       description = "Apply blackmatter-tailscale typed config to running tailscaled";
       wantedBy = [ "multi-user.target" ];
       after = [ "tailscaled.service" "tailscaled-autoconnect.service" ];
@@ -204,8 +211,8 @@ in
           ${pkgs.tailscale}/bin/tailscale status >/dev/null 2>&1 && break
           sleep 1
         done
-        ${pkgs.tailscale}/bin/tailscale set ${lib.escapeShellArgs buildUpFlags} || \
-          echo "[blackmatter-tailscale] tailscale set failed; tailscaled may not be ready"
+        ${pkgs.tailscale}/bin/tailscale up ${lib.escapeShellArgs buildUpFlags} || \
+          echo "[blackmatter-tailscale] tailscale up failed; tailscaled may not be ready"
       '';
     };
   };
