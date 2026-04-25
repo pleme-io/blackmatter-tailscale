@@ -130,8 +130,26 @@ in
     ssh = {
       enable = lib.mkOption {
         type = lib.types.bool;
-        default = true;
-        description = "Enable Tailscale SSH server (allows `tailscale ssh` access without OpenSSH port forwarding).";
+        default = false;
+        description = ''
+          Enable Tailscale SSH (`tailscale up --ssh`). When true,
+          tailscaled hijacks port 22 for tailnet peers and applies
+          tailnet-ACL-based auth — including "check mode," which
+          forces interactive web re-auth per session via a URL
+          printed to the client's terminal. That breaks every
+          non-interactive use case (scp, rsync, git over ssh, comin,
+          deploy automation) unless the ACL explicitly skips check
+          mode for the source identity.
+
+          Defaults to false because every pleme node already runs
+          regular sshd with `services.openssh.enable = true` and
+          ssh-key-based auth via SOPS/akeyless-rendered
+          authorized_keys. Tailscale SSH adds friction without
+          removing any other path.
+
+          Flip on per-node when the tailnet ACL is genuinely the
+          authorization source of truth.
+        '';
       };
     };
 
