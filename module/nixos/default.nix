@@ -19,6 +19,9 @@ let
     routeFlags = lib.optional (cfg.advertisedRoutes != [])
       "--advertise-routes=${lib.concatStringsSep "," cfg.advertisedRoutes}";
 
+    tagFlags = lib.optional (cfg.tags != [])
+      "--advertise-tags=${lib.concatStringsSep "," cfg.tags}";
+
     exitNodeFlag = lib.optional (cfg.role == "exit-node")
       "--advertise-exit-node";
 
@@ -27,7 +30,7 @@ let
 
     dnsFlag = [ "--accept-dns=${lib.boolToString cfg.acceptDns}" ];
   in
-    hostnameFlag ++ routeFlags ++ exitNodeFlag ++ acceptRouteFlag ++ dnsFlag ++ cfg.extraFlags;
+    hostnameFlag ++ routeFlags ++ tagFlags ++ exitNodeFlag ++ acceptRouteFlag ++ dnsFlag ++ cfg.extraFlags;
 in
 {
   options.blackmatter.components.tailscale = {
@@ -61,6 +64,23 @@ in
       type = lib.types.listOf lib.types.str;
       default = [];
       description = "Subnets to advertise (for subnet-router or exit-node roles).";
+    };
+
+    tags = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [];
+      example = [ "tag:fleet" "tag:server" ];
+      description = ''
+        Tailnet tags to advertise on first login (rendered as
+        `--advertise-tags=` to `tailscale up`). Tag ownership is
+        controlled by the tailnet ACL — nodes can advertise any tag,
+        but only owners can authorize it. Manage the ACL via
+        `pangea-architectures/workspaces/pleme-io-tailnet`.
+
+        Tags drive ACL grants in the typed policy: `tag:fleet`
+        receives the fleet-mesh SSH/cluster grants; `tag:server`
+        receives extra reachability for K3s API and friends.
+      '';
     };
 
     acceptRoutes = lib.mkOption {

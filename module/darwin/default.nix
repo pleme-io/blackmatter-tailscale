@@ -42,6 +42,22 @@ in
       description = "Subnets to advertise (documentation-only on Darwin).";
     };
 
+    tags = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [];
+      example = [ "tag:fleet" "tag:dev" ];
+      description = ''
+        Tailnet tags this Mac advertises (documentation-only on Darwin —
+        nix-darwin's services.tailscale doesn't pass flags to
+        `tailscale up`). Apply once interactively:
+
+          sudo tailscale up --advertise-tags=tag:fleet,tag:dev
+
+        Tag ownership is controlled by the tailnet ACL managed in
+        `pangea-architectures/workspaces/pleme-io-tailnet`.
+      '';
+    };
+
     acceptRoutes = lib.mkOption {
       type = lib.types.bool;
       default = cfg.role == "client";
