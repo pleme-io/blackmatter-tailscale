@@ -10,7 +10,19 @@ let
 in
 {
   options.blackmatter.components.tailscale = {
-    enable = lib.mkEnableOption "Tailscale VPN";
+    enable = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Run the Tailscale daemon on this node — i.e. join the tailnet
+        mesh. When enabled the node has a tailnet IP (100.x.y.z) and
+        can be reached by peers; when disabled there is no tailscaled
+        and no tailnet membership.
+
+        This is INDEPENDENT of `acceptDns` below. A node can be on the
+        mesh without consulting Tailscale's DNS resolver.
+      '';
+    };
 
     role = lib.mkOption {
       type = lib.types.enum [ "client" "subnet-router" "exit-node" ];
@@ -40,7 +52,25 @@ in
     acceptDns = lib.mkOption {
       type = lib.types.bool;
       default = false;
-      description = "Accept Tailscale MagicDNS. Maps to overrideLocalDns on Darwin.";
+      description = ''
+        Accept Tailscale MagicDNS configuration on this node — i.e. let
+        Tailscale install its resolver (100.100.100.100) for the
+        tailnet's MagicDNS suffix and add that suffix as a search
+        domain. With this true:
+
+          ssh rio          # bare name resolves via MagicDNS
+
+        With this false the node is on the mesh but has no idea what
+        the bare name `rio` refers to — only raw tailnet IPs work, or
+        you must declare host entries elsewhere.
+
+        On Darwin this maps to nix-darwin's
+        `services.tailscale.overrideLocalDns`, which adds Tailscale's
+        resolver to the macOS DNS chain. macOS scoped resolvers keep
+        per-domain routing intact, so a WireGuard-pushed supplemental
+        resolver (e.g. dnsmasq for `.quero.cloud`) continues to win
+        for its own scope.
+      '';
     };
 
     authKeyFile = lib.mkOption {
