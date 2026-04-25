@@ -1,12 +1,29 @@
 # module/darwin/default.nix — macOS Tailscale module
 #
-# Provides the same blackmatter.components.tailscale.* option interface as
-# the NixOS module. On Darwin, services.tailscale is limited — role,
-# advertisedRoutes, and firewall options are accepted but enforced via
-# `tailscale up` CLI post-rebuild, not declaratively.
+# Provides the same blackmatter.components.tailscale.* option interface
+# as the NixOS module and enforces it declaratively. nix-darwin's
+# services.tailscale only handles tailscaled lifecycle on macOS — it
+# does not push `tailscale up` flags. We close that gap here with a
+# system activation hook that re-runs `tailscale up` with the typed
+# flag set after every `darwin-rebuild`. `tailscale up` is idempotent:
+# applying the same flag set repeatedly is a no-op.
 { config, lib, pkgs, ... }:
 let
   cfg = config.blackmatter.components.tailscale;
+
+  # Shared helper — same flag set NixOS uses, so a node with identical
+  # `blackmatter.components.tailscale.*` config gets identical tailnet
+  # state regardless of OS.
+  buildUpFlags = import ../lib/up-flags.nix { inherit lib; } cfg;
+
+  # `tailscale up` invocation as a flat shell-quoted string. authKeyFile
+  # is platform-specific so it's appended here, not in the shared helper.
+  upInvocation =
+    "${pkgs.tailscale}/bin/tailscale up "
+    + lib.escapeShellArgs (
+      (lib.optional (cfg.authKeyFile != null) "--auth-key=file:${cfg.authKeyFile}")
+      ++ buildUpFlags
+    );
 in
 {
   options.blackmatter.components.tailscale = {
@@ -27,19 +44,27 @@ in
     role = lib.mkOption {
       type = lib.types.enum [ "client" "subnet-router" "exit-node" ];
       default = "client";
-      description = "Node role (documentation-only on Darwin — enforce via `tailscale up` CLI).";
+      description = ''
+        Node role: `client` (default), `subnet-router` (advertises
+        `advertisedRoutes`), or `exit-node` (advertises itself as a
+        tailnet-wide egress).
+      '';
     };
 
     hostname = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
-      description = "Override Tailscale hostname (documentation-only on Darwin).";
+      description = "Override Tailscale hostname (null = system hostname).";
     };
 
     advertisedRoutes = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [];
-      description = "Subnets to advertise (documentation-only on Darwin).";
+      description = ''
+        Subnets to advertise via `--advertise-routes=`. Used by
+        subnet-router or exit-node roles. Applied declaratively at
+        every rebuild.
+      '';
     };
 
     tags = lib.mkOption {
@@ -47,13 +72,10 @@ in
       default = [];
       example = [ "tag:fleet" "tag:dev" ];
       description = ''
-        Tailnet tags this Mac advertises (documentation-only on Darwin —
-        nix-darwin's services.tailscale doesn't pass flags to
-        `tailscale up`). Apply once interactively:
-
-          sudo tailscale up --advertise-tags=tag:fleet,tag:dev
-
-        Tag ownership is controlled by the tailnet ACL managed in
+        Tailnet tags this node advertises (rendered as
+        `--advertise-tags=` to `tailscale up` at activation time). Tag
+        ownership is controlled by the tailnet ACL — nodes can advertise
+        any tag, but only owners can authorize it. Manage the ACL via
         `pangea-architectures/workspaces/pleme-io-tailnet`.
       '';
     };
@@ -62,7 +84,7 @@ in
       type = lib.types.bool;
       default = cfg.role == "client";
       defaultText = lib.literalExpression ''true when role == "client"'';
-      description = "Accept routes from other nodes (documentation-only on Darwin).";
+      description = "Accept routes advertised by other Tailscale nodes.";
     };
 
     acceptDns = lib.mkOption {
@@ -110,7 +132,17 @@ in
     authKeyFile = lib.mkOption {
       type = lib.types.nullOr lib.types.path;
       default = null;
-      description = "Not supported on Darwin (interactive auth via `sudo tailscale up`).";
+      description = ''
+        Path to a file containing a Tailscale auth key. Wired into
+        `tailscale up --auth-key=file:<path>` at activation time so
+        first-boot enrollment is automatic. Use a SOPS-rendered path
+        (e.g. `config.sops.secrets."tailscale/auth-key".path`) — the
+        file must be readable by root, since the activation hook runs
+        as root.
+
+        Null = interactive auth (operator runs `sudo tailscale login`
+        manually). Set this to make the node fully declarative.
+      '';
     };
 
     firewall = {
@@ -127,10 +159,24 @@ in
       };
     };
 
+    ssh = {
+      enable = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = ''
+          Enable Tailscale SSH (`tailscale up --ssh`). Defaults to
+          false — every pleme node already runs OpenSSH with key-based
+          auth, and Tailscale SSH's check-mode breaks non-interactive
+          flows (scp, rsync, git over ssh) unless the ACL explicitly
+          skips it for the source identity.
+        '';
+      };
+    };
+
     extraFlags = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [];
-      description = "Additional flags (documentation-only on Darwin).";
+      description = "Additional flags appended to `tailscale up`.";
     };
   };
 
@@ -141,6 +187,21 @@ in
     };
 
     environment.systemPackages = [ pkgs.tailscale ];
+
+    # Re-apply the typed config to the live tailscaled on every
+    # `darwin-rebuild`. Mirrors nixpkgs' tailscaled-autoconnect.service
+    # on NixOS. The brief polling loop covers the first-boot race where
+    # tailscaled's launchd plist is loaded but the daemon hasn't yet
+    # bound its local API socket.
+    system.activationScripts.postActivation.text = lib.mkAfter ''
+      echo "[blackmatter-tailscale] applying declarative config..."
+      for _ in 1 2 3 4 5 6 7 8 9 10; do
+        ${pkgs.tailscale}/bin/tailscale status >/dev/null 2>&1 && break
+        sleep 1
+      done
+      ${upInvocation} || \
+        echo "[blackmatter-tailscale] tailscale up failed; tailscaled may not be ready yet — re-run darwin-rebuild"
+    '';
 
     # When opting into search-domain wiring on Darwin, push the suffix
     # via `networksetup -setsearchdomains` for the typical built-in

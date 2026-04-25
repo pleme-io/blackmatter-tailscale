@@ -11,26 +11,8 @@ let
     if cfg.role == "client" then "client"
     else "server";
 
-  # Build extraUpFlags from structured options
-  buildUpFlags = let
-    hostnameFlag = lib.optional (cfg.hostname != null)
-      "--hostname=${cfg.hostname}";
-
-    routeFlags = lib.optional (cfg.advertisedRoutes != [])
-      "--advertise-routes=${lib.concatStringsSep "," cfg.advertisedRoutes}";
-
-    tagFlags = lib.optional (cfg.tags != [])
-      "--advertise-tags=${lib.concatStringsSep "," cfg.tags}";
-
-    exitNodeFlag = lib.optional (cfg.role == "exit-node")
-      "--advertise-exit-node";
-
-    acceptRouteFlag = lib.optional cfg.acceptRoutes
-      "--accept-routes";
-
-    dnsFlag = [ "--accept-dns=${lib.boolToString cfg.acceptDns}" ];
-  in
-    hostnameFlag ++ routeFlags ++ tagFlags ++ exitNodeFlag ++ acceptRouteFlag ++ dnsFlag ++ cfg.extraFlags;
+  # Shared helper — same flag set used on Darwin for full declarative parity.
+  buildUpFlags = import ../lib/up-flags.nix { inherit lib; } cfg;
 in
 {
   options.blackmatter.components.tailscale = {
@@ -184,7 +166,7 @@ in
     services.tailscale = {
       enable = true;
       useRoutingFeatures = routingFeatures;
-      extraUpFlags = buildUpFlags ++ lib.optional cfg.ssh.enable "--ssh";
+      extraUpFlags = buildUpFlags;
     } // lib.optionalAttrs (cfg.authKeyFile != null) {
       authKeyFile = cfg.authKeyFile;
     };
