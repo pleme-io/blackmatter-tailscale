@@ -162,13 +162,35 @@ in
     ssh = {
       enable = lib.mkOption {
         type = lib.types.bool;
-        default = false;
+        default = true;
         description = ''
-          Enable Tailscale SSH (`tailscale up --ssh`). Defaults to
-          false — every pleme node already runs OpenSSH with key-based
-          auth, and Tailscale SSH's check-mode breaks non-interactive
-          flows (scp, rsync, git over ssh) unless the ACL explicitly
-          skips it for the source identity.
+          Enable Tailscale SSH (`tailscale up --ssh`). When true,
+          tailscaled answers port 22 for connections that arrive over
+          the tailnet and applies the tailnet ACL as the authorization
+          source of truth.
+
+          The fleet default is true. The canonical SSH path for
+          pleme-io is:
+
+            tailnet ACL  →  authorized identity  →  tailscale SSH on :22
+
+          Adding/revoking SSH access is one edit to
+          `pangea-architectures/workspaces/pleme-io-tailnet/spec.yaml`
+          plus `nix run .#deploy` — no fleet-wide pubkey distribution,
+          no rebuilds. The ACL permits both
+          `autogroup:admin → tag:fleet` (operator SSO identity) and
+          `tag:fleet → tag:fleet` (device-to-device automation),
+          always with `action: accept` so non-interactive flows
+          (scp, rsync, git over ssh, `darwin-rebuild --target-host`)
+          keep working.
+
+          Tailscale SSH only intercepts :22 for tailnet-source
+          connections. macOS Remote Login (system sshd) still
+          answers LAN-side and WireGuard-direct connections with
+          regular key auth.
+
+          Set false on a node only if it must NOT participate in the
+          tailnet-ACL-governed SSH plane.
         '';
       };
     };
